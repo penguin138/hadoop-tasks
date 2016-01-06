@@ -1,8 +1,8 @@
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
+import org.apache.hadoop.io.WritableComparable;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.Reducer;
@@ -11,8 +11,9 @@ import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
 
+import java.io.DataInput;
+import java.io.DataOutput;
 import java.io.IOException;
-import java.io.InterruptedIOException;
 import java.util.StringTokenizer;
 
 /**
@@ -62,36 +63,100 @@ class MyReducer extends Reducer<Text, LongWritable, Text, LongWritable>{
     }
 }
 
+class ComplexKey implements WritableComparable<ComplexKey> {
+    private Text word;
+    private LongWritable count;
+
+    public ComplexKey() {
+        word = new Text();
+        count = new LongWritable();
+    }
+
+    public ComplexKey(Text newWord, LongWritable newCount) {
+        this();
+        word.set(newWord);
+        count.set(newCount.get());
+    }
+    public Text getWord() {
+        return word;
+    }
+    public LongWritable getCount() {
+        return count;
+    }
+    @Override
+    public int compareTo(ComplexKey o) {
+        int wordResult = word.compareTo(o.word);
+        int countResult = count.compareTo(o.count);
+        if (countResult == 0) {
+            return wordResult;
+        } else {
+            return -countResult;
+        }
+    }
+
+    @Override
+    public void write(DataOutput dataOutput) throws IOException {
+        word.write(dataOutput);
+        count.write(dataOutput);
+    }
+
+    @Override
+    public void readFields(DataInput dataInput) throws IOException {
+        word.readFields(dataInput);
+        count.readFields(dataInput);
+    }
+}
+
+class YetAnotherMapper extends Mapper<Object, Text, ComplexKey, LongWritable> {
+
+    @Override
+    protected void map(Object key, Text value, Context context) throws IOException, InterruptedException {
+        String[] pair = value.toString().split("\\s+");
+        Text word = new Text(pair[0]);
+        LongWritable count = new LongWritable(Long.parseLong(pair[1]));
+        context.write(new ComplexKey(word, count),count);
+    }
+}
+
+class YetAnotherReducer extends Reducer<ComplexKey, LongWritable, Text, LongWritable>  {
+
+    @Override
+    protected void reduce(ComplexKey key, Iterable<LongWritable> values, Context context) throws IOException, InterruptedException {
+        context.write(key.getWord(), key.getCount());
+    }
+}
+
+
 public class WordCount {
-    public static void main(String[] args) {
-        Job job = null;
-        try {
-            job = Job.getInstance(new Configuration(),"word count");
-        } catch (IOException e) {
-            System.out.println(e.getMessage());
-            return;
-        }
-        job.setMapperClass(MyMapper.class);
-        job.setReducerClass(MyReducer.class);
-        try {
-            FileInputFormat.addInputPath(job, new Path(args[0]));
-        } catch (IOException e) {
-            System.out.println(e.getMessage());
-            return;
-        }
-        FileOutputFormat.setOutputPath(job, new Path(args[1]));
-        job.setInputFormatClass(TextInputFormat.class);
-        job.setOutputFormatClass(TextOutputFormat.class);
+    public static void main(String[] args) throws IOException, ClassNotFoundException, InterruptedException {
+        Job firstJob = Job.getInstance(new Configuration(),"word count");
+        Job secondJob = Job.getInstance(new Configuration(), "sort");
 
-        job.setOutputKeyClass(Text.class);
-        job.setOutputValueClass(LongWritable.class);
+        firstJob.setMapperClass(MyMapper.class);
+        firstJob.setReducerClass(MyReducer.class);
+        secondJob.setMapperClass(YetAnotherMapper.class);
+        secondJob.setReducerClass(YetAnotherReducer.class);
 
-        try {
-            job.waitForCompletion(false);
-        } catch (IOException  | ClassNotFoundException e) {
-            System.out.println(e.getMessage());
-        } catch (InterruptedException e) {
-            System.out.println(e.getMessage());
-        }
+        FileInputFormat.addInputPath(firstJob, new Path(args[0]));
+        FileOutputFormat.setOutputPath(firstJob, new Path("tmp"));
+        FileInputFormat.addInputPath(secondJob, new Path("tmp"));
+        FileOutputFormat.setOutputPath(secondJob, new Path(args[1]));
+
+        firstJob.setInputFormatClass(TextInputFormat.class);
+        firstJob.setOutputFormatClass(TextOutputFormat.class);
+        secondJob.setInputFormatClass(TextInputFormat.class);
+        secondJob.setOutputFormatClass(TextOutputFormat.class);
+
+        firstJob.setOutputKeyClass(Text.class);
+        firstJob.setOutputValueClass(LongWritable.class);
+        secondJob.setOutputKeyClass(ComplexKey.class);
+        secondJob.setOutputValueClass(LongWritable.class);
+
+        firstJob.setJarByClass(WordCount.class);
+        secondJob.setJarByClass(WordCount.class);
+
+        firstJob.waitForCompletion(false);
+        secondJob.waitForCompletion(false);
+
     }
 }
