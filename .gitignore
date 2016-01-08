@@ -3,3 +3,11 @@ hadoop-tasks.iml
 inFiles
 outFiles
 out
+matrix-multiplication/input
+matrix-multiplication/.idea
+matrix-multiplication/output
+matrix-multiplication/out
+matrix-multiplication/tmp
+matrix-multiplication.iml
+streaming/.idea
+streaming/input.txt
