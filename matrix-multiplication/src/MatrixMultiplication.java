@@ -177,7 +177,7 @@ class MyMapper extends Mapper<Object,Text, ComplexKey, ComplexValue > {
             numberOfBlockRowsAnotherMatrix = I / rowBlockSize;
         }
         String stringRow = value.toString();
-        System.out.println(stringRow);
+        //System.out.println(stringRow);
         String[] rowValues = stringRow.split("\\s+");
         long rowIndex = Long.parseLong(rowValues[0]);
         long columnIndex = Long.parseLong(rowValues[1]);
@@ -190,13 +190,13 @@ class MyMapper extends Mapper<Object,Text, ComplexKey, ComplexValue > {
             for (long copy = 0; copy < numberOfBlockColumnsAnotherMatrix;copy++) {
                 context.write(new ComplexKey(rowBlockIndex,columnBlockIndex,new LongWritable(copy)),
                         new ComplexValue(inBlockRowIndex,inBlockColumnIndex,new DoubleWritable(matrixValue),matrixNumber));
-                System.out.println(rowBlockIndex.get()+", "+columnBlockIndex.get()+", "+copy+"\t"+inBlockRowIndex.get() +", "+ inBlockColumnIndex.get() + ", " + matrixValue + ", " + matrixIntNumber);
+                //System.out.println(rowBlockIndex.get()+", "+columnBlockIndex.get()+", "+copy+"\t"+inBlockRowIndex.get() +", "+ inBlockColumnIndex.get() + ", " + matrixValue + ", " + matrixIntNumber);
             }
         } else {
             for (long copy = 0; copy < numberOfBlockRowsAnotherMatrix;copy++) {
                 context.write(new ComplexKey(new LongWritable(copy),rowBlockIndex,columnBlockIndex),
                         new ComplexValue(inBlockRowIndex,inBlockColumnIndex,new DoubleWritable(matrixValue),matrixNumber));
-                System.out.println(copy + ", " + rowBlockIndex.get() + ", " + columnBlockIndex.get() + "\t"+inBlockRowIndex.get() +", "+ inBlockColumnIndex.get() + ", " + matrixValue + ", " + matrixIntNumber);
+                //System.out.println(copy + ", " + rowBlockIndex.get() + ", " + columnBlockIndex.get() + "\t"+inBlockRowIndex.get() +", "+ inBlockColumnIndex.get() + ", " + matrixValue + ", " + matrixIntNumber);
             }
         }
     }
@@ -281,38 +281,36 @@ class MatrixCoordinates implements WritableComparable<MatrixCoordinates> {
 class MyReducer extends Reducer<ComplexKey, ComplexValue,MatrixCoordinates, DoubleWritable > {
     @Override
     protected void reduce(ComplexKey key, Iterable<ComplexValue> values, Context context) throws IOException, InterruptedException {
-        Map<MatrixCoordinates,Double> matrixA = new TreeMap<>();
-        Map<MatrixCoordinates,Double> matrixB = new TreeMap<>();
         Configuration conf = context.getConfiguration();
         long rowBlockSize = Long.parseLong(conf.get("BlockI"));
         long columnBlockSize = Long.parseLong(conf.get("BlockJ"));
+        double[][] blockA = new double[(int)rowBlockSize][(int)columnBlockSize];
+        double[][] blockB = new double[(int)rowBlockSize][(int)columnBlockSize];
         long rowOffsetA = key.getRowBlockIndex()*rowBlockSize;
         long columnOffsetB = key.getNumberOfCopy()*columnBlockSize;
         for (ComplexValue value : values) {
             int matrixNumber = value.getMatrixNumber();
+            int i = (int) value.getInBlockRowIndex().get();
+            int j = (int) value.getInBlockColumnIndex().get();
+            double matrixValue = value.getValue();
             if (matrixNumber == 0) {
-                matrixA.put(new MatrixCoordinates(value.getInBlockRowIndex(), value.getInBlockColumnIndex()),value.getValue());
+                blockA[i][j] = matrixValue;
             } else {
-                matrixB.put(new MatrixCoordinates(value.getInBlockRowIndex(), value.getInBlockColumnIndex()),value.getValue());
+                blockB[i][j] = matrixValue;
             }
         }
 
-        for (long i = 0; i < rowBlockSize; i++) {
-            for (long j = 0; j < columnBlockSize; j++) {
+        for (int i = 0; i < rowBlockSize; i++) {
+            for (int j = 0; j < columnBlockSize; j++) {
                 double cElementPart = 0;
-                for (long k = 0;k < columnBlockSize;k++) {
-                    Double valueA = matrixA.get(new MatrixCoordinates(new LongWritable(i),new LongWritable(k)));
-                    Double valueB = matrixB.get(new MatrixCoordinates(new LongWritable(k),new LongWritable(j)));
-                    if (valueA != null && valueB != null) {
-                        cElementPart+= valueA.doubleValue()*valueB.doubleValue();
-                    }
+                for (int k = 0;k < columnBlockSize;k++) {
+                    cElementPart+= blockA[i][k]*blockB[k][j];
                 }
                 context.write(new MatrixCoordinates(new LongWritable(rowOffsetA+i),new LongWritable(columnOffsetB+j)),
                         new DoubleWritable(cElementPart));
 
             }
         }
-
 
     }
 }
